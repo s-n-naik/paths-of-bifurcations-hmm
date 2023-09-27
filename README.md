@@ -108,7 +108,7 @@ To visualise and generate synthetic trees, you should have the following structu
 
 ### Generate a cohort of synthetic trees
 <!-- <a href="url"><img src="!/synthetic_trees/ATM_example/synthetic_trees_readme.png" align="left" height="48" width="48" ></a> -->
-![trees](/synthetic_trees/ATM_example/synthetic_trees_readme.png)
+![trees](synthetic_trees/ATM_example/synthetic_trees_readme.png)
 
 
 To generate a cohort of synthetic trees, run 
