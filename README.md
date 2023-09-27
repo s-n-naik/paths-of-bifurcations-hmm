@@ -65,6 +65,15 @@ Additional requirements:
 
 ## Synthetic Data preparation (synthetic_trees)
 
+A procedural model involves the repetitive application of a small set of rules that control local behaviour. We use the python package Lpy (Boudon et al., 2012) for procedural modelling of L- systems (a parallel string rewriting system used in graphics design (Prusinkiewicz & Lindenmayer, 2012)) to generate synthetic three-dimensional tree-like structures. We imposed some growth constraints on our synthetic trees by imposing some space boundaries. 
+
+We have provided a template for generating synthetic trees in folder `synthetic_trees/ATM_example` based on an exemplar Airway Tree from the ATM '22 Grand Challenge dataset. We have provided the centerline graph for the exemplar tree in `synthetic_trees/ATM_example/tree_template.df`, along with the corresponding 3d lung mask in `synthetic_trees/ATM_example/lobe_template.npy`. The HMM and spatial constraints are contained in `synthetic_trees/ATM_example/gt_info.pkl`. 
+
+`gt_info.pkl` contains a dictionary with keys: "mu", "cov",  corresponding to the mean, covariance of the HMM emission distributions; "tm" corresponding to the state-transition matrix and "w" corresponding to the termination weights. This file should be modified to generate trees of desired depth, spatial crowding, and with different branching behaviours. 
+
+
+### Setup
+
 Create a new environment with [Conda](https://docs.conda.io/en/latest/), following instructions on [Lpy User Guide](https://lpy.readthedocs.io/en/latest/index.html).
 
 ```bash
