@@ -1,7 +1,9 @@
 # Paths-of-Bifurcation Inference for Hidden Markov Modelling of Binary Trees
 
-![](img_src/branching_angle_description.png)
+<!--![](img_src/branching_angle_description.png)-->
 
+
+<img src="img_src/branching_angle_description.png" alt="branchingangles" width="400"/>
 
 Implementation of the paper
 
@@ -119,8 +121,8 @@ To visualise and generate synthetic trees, you should have the following structu
 
 ### Generate a cohort of synthetic trees
 <!-- <a href="url"><img src="!/synthetic_trees/ATM_example/synthetic_trees_readme.png" align="left" height="48" width="48" ></a> -->
-![trees](img_src/synthetic_trees_readme.png)
-
+<!--![trees](img_src/synthetic_trees_readme.png) -->
+<img src="img_src/synthetic_trees_readme.png" alt="synthtrees" width="400"/>
 
 To generate a cohort of synthetic trees, run 
 ```bash
@@ -144,8 +146,9 @@ Additional parameters that can be passed include:
 
 Visualisation of example `tree_template_df.csv` and `lobe_template.npy`:
 
+<img src="img_src/example_df.png" alt="exampleatmtree" width="400"/>
 
-![](img_src/example_df.png)
+<!-- ![](img_src/example_df.png) -->
 
 
 To process the cohort of trees into a single path dataset, run 
