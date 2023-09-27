@@ -1,0 +1,389 @@
+import numpy as np
+import pandas as pd
+import os
+import uuid
+import random
+from math import pi,radians
+import networkx as nx
+
+import torch
+import torch.distributions as distributions
+
+
+from openalea.lpy import *
+import openalea.plantgl.all as pgl
+from openalea.plantgl.all import *
+
+root = os.getcwd()
+
+extern(idno='ATM_example') # name of idno of scaffold and lobe mask to load
+extern(lobe_of_choice=3)
+extern(stop_id=177)
+extern(file_path=f"ATM_example/tree_0_0.csv") #  to save outputs
+extern(lobe_path=f'ATM_example/lobe_template.npy')
+extern(load_path= f'ATM_example/gt_info.pkl')
+extern(config_path = f'ATM_example/tree_template_df.csv')
+print(os.getcwd())
+
+# Load dataframe for the airway tree
+
+df = pd.read_csv(config_path)
+
+g = nx.DiGraph()
+nodes =df.endbpid.to_list()
+edges = list(zip(df.startbpid, df.endbpid))
+g.add_nodes_from(nodes)
+g.add_edges_from(edges)
+
+root = df.loc[df.isroot].startbpid.item()
+print('Root', root)
+path =list(nx.shortest_simple_paths(g,root,stop_id))
+
+
+test_df = df.loc[df.endbpid.isin(path[0])]
+print('Making scaffold for idno={}, lobe={}, with nodes = {}'.format(idno, lobe_of_choice, test_df.endbpid.unique()))
+
+# Use for generating lengths / radii for new branches
+info_per_gen = df.groupby('weibel_generation').agg({'radius_vox':'mean', 'centerlinelength_vox':lambda x:np.quantile(x,0.3)}).reset_index()
+
+# Set up df to save locations of procedurally generated branches
+global segment_df
+
+segment_df = pd.DataFrame({'idno': idno, 'xdir': 0, 
+              'ydir': 0, 
+              'zdir': 0,
+              'centerlinelength': 0,
+              'x': 0, 'y': 0, 'z': 0,
+              'radius': 0, 
+              'child_id':0, 
+              'parent_id':0, 
+              'alpha1':0,
+              'alpha2':0,
+              'phi':0,
+              'd1':0, 
+              'd2':0, 
+              'd3':0,
+              'd4':0,
+              'p_emit':0,
+              "t":0,
+              'rule':0,
+              'noise':0}, index=[0])
+
+
+
+
+# Load lobe mask & set up lobe attractors
+
+lobe_arr = np.load(lobe_path)
+
+print('Loaded lobe mask', lobe_arr.shape)
+
+
+pts=[]
+xs, ys, zs = np.where(lobe_arr == lobe_of_choice)
+spacing = 4 # Vary depending on loading time
+
+for i in range(len(xs)):
+  if i %int(np.power(spacing,3)) ==0:
+    pts.append(Vector3(xs[i].item(), ys[i].item(), zs[i].item()))
+
+# place the attractor points into a grid
+
+attractor_grid = Point3Grid(pts, 10) # Dyamic attractor grid
+attractor_grid_2 = Point3Grid(pts, 10) # Static attractor grid
+
+
+
+Attractors = {}
+def register_attractors(attractors, node):
+   """ FROM TUTORIAL L-PY Check for competition for attractors.  If an attractors is already assigned to another bud, 
+       check which is the closest and assign to it. """
+   global Attractors
+   todel = []
+   for at in attractors:
+     dist = norm(pts[at]-node)
+     if at in Attractors:
+    
+        r = Attractors[at]
+        # r is length 2 (distance, list of attractors)
+        if dist < r[0]:
+            del r[1][r[1].index(at)]
+            r = (dist,attractors)
+        else:
+           todel.append(at)
+     else:
+        r = (dist,attractors)
+     Attractors[at] = r
+   for d in todel:
+       attractors.remove(d)
+
+
+# Load ground truth HMM parameters
+
+gt_info = torch.load(load_path)
+print('\n\n\n\n GT INFO', gt_info)
+
+
+nb_iter = gt_info['nb_iter'] # number of iterations to run
+
+tm = gt_info['tm'] # HMM state-transition matrix
+
+
+evals, evecs = torch.linalg.eig(tm.T)
+evec1 = evecs[:,np.isclose(evals,1)]
+evec1 = evec1[:,0]
+stationary = evec1 / evec1.sum()
+start_dist = stationary.real # HMM start distribution = stationary dist of transition matrix
+
+
+mu = gt_info['mu'] # HMM emission means (angles)
+
+
+cov = gt_info['cov'] # HMM emision variance
+
+
+gen = gt_info['gen'] # Pivot generation for age termination constraint (d4)
+
+w_ =  gt_info['w'].float()
+w_ /= torch.linalg.norm(w_) # Termination constraints (for d1-4)
+
+# Colour for each HMM state (if more than 5 states --> add more colours to colour map)
+cmap ={0:(100,120,186), 1:(249,105,116),  2:(153,153,255),  3:(204,225,204), 4:(225,153,0),  'terminate':(0,0,0)}
+
+
+
+
+def get_child_info(start_id):
+    '''
+    Build scaffold for tree by getting information of child branches from start_id
+    NOTE: Returns VOXEL locations and vectors and centerlinelengths, radii.
+    '''
+    try:
+        children = test_df[test_df.startbpid == start_id]
+        nb_axes = len(children)
+        child_vectors = []
+        child_lengths = []
+        child_radii = []
+        child_endids = []
+        child_names = []
+        generation  = []
+        for j in range(nb_axes):
+            child_end = children.iloc[j]["endbpid"]
+            child_gen = children.iloc[j]["weibel_generation"]
+            if 'anatomicalname' in test_df.columns:
+                child_name = children.iloc[j]['anatomicalname']
+            else:
+                child_name = ""
+            
+            
+            # Compute vector from start /end vox locs
+            start_vox = children.iloc[j][["parent_vox_x", "parent_vox_y", "parent_vox_z"]].values
+            end_vox = children.iloc[j][["vox_x", "vox_y", "vox_z"]].values
+            child_vector = (end_vox-start_vox)/np.linalg.norm((end_vox-start_vox))
+            child_l = np.linalg.norm((end_vox-start_vox))
+            child_r = children.iloc[j]["radius_vox"]
+            
+            child_vectors.append(child_vector)
+            child_lengths.append(child_l)
+            child_radii.append(child_r)
+            child_endids.append(child_end)
+            child_names.append(child_name)
+            generation.append(child_gen)
+        
+    except:
+        print(f"There is no start branch id {start_id}")
+
+    return nb_axes, child_vectors, child_lengths, child_radii, child_endids, child_names, generation
+
+
+
+def StartEach():
+  global Attractors
+  Attractors = {}
+  
+  ittern = getIterationNb()
+  
+  if ittern ==0:
+    print("BEGINNING TRAINING\n\n\nA:", tm, "\n\nMu:", mu, "\n\n\nw:",w_)
+  
+  if ittern == nb_iter:
+    global file_path
+    global idno
+    global lobe_of_choice
+    print("SAVING RESULTS", file_path)
+    segment_df.to_csv(file_path)
+    
+def EndEach(lstring):
+  # prints out the lstring to the terminal at each derivation step + the length of the lstring
+  
+  global file_path
+  global idno
+  global lobe_of_choice
+  print("SAVING RESULTS", file_path)
+  segment_df.to_csv(file_path) 
+  
+
+module I
+module B
+module A
+module Attractors
+
+
+# Set up axiom --> at start location of root
+start_id = -1
+move_to = df.loc[df.startbpid==start_id][['parent_vox_x','parent_vox_y', 'parent_vox_z']].values.squeeze()
+root_pos = Vector3(move_to[0], move_to[1], move_to[2])
+
+Axiom: Attractors @M(root_pos)B(-1)
+
+
+derivation length:  nb_iter
+production:
+
+
+# SCAFFOLD PRODUCTION
+B(p):
+  nb_axes, child_vectors, child_lengths, child_radii, child_endids, child_names , generation = get_child_info(p)
+  
+  if p == -1:
+    produce PinpointRel(child_vectors[0])I(child_lengths[0],child_radii[0], p, child_endids[0], child_names[0], generation[0]) B(child_endids[0]) # removed Frame from before A(child_endids[0])
+  else:
+  
+      for i in range(nb_axes):
+        if child_endids[i] != stop_id:
+          nproduce PinpointRel(child_vectors[i])[I(child_lengths[i],child_radii[i], p, child_endids[i], child_names[i], generation[i]) B(child_endids[i])]
+        else:
+          
+          # BEGIN HMM
+          init_rule = torch.distributions.Categorical(start_dist).sample().item() # Sample initial rule
+          
+          nproduce PinpointRel(child_vectors[i])[I(child_lengths[i],child_radii[i], p, child_endids[i], child_names[i], generation[i]) ?P(0,0,0)?H(0,0,0)A(child_lengths[i], child_radii[i], init_rule, cmap[init_rule],child_endids[i],generation[i])]
+          
+          
+# HMM PRODUCTION
+?P(x,y,z)?H(u,v,w)A(l,r,o, c,parent_id,t):
+  global segment_df
+  
+  # Check parent conditions for termination
+  radius_to_check = int(max([2*l, 2*spacing]))
+  pt_to_check = np.array([x,y,z]).astype(int)
+  dir_to_check = np.array([u,v,w])
+  print('Checking PV of side length', radius_to_check)
+  
+  # Compute d1 from static attractor grid
+  vol_lung_in_pv = len(attractor_grid_2.query_points_in_cone(Vector3(x,y,z),Vector3(u,v,w), radius_to_check, radians(90)))
+  pv_vol = 1+ (np.pi* np.power(radius_to_check,3)/np.power(spacing,3)) # vol of cone 1/3 pi r^3 / spacing, smoothed by 1
+  
+  d1 = 1-(vol_lung_in_pv/(pv_vol))
+  print('d1 numerator-denominator', vol_lung_in_pv, pv_vol,'contribution', w_[0].item()*d1)
+  
+  # Compute d2 from dynamic attractor grid
+  localattractors = attractor_grid.query_points_in_cone(Vector3(x,y,z),Vector3(u,v,w), radius_to_check, radians(90))
+  register_attractors(localattractors ,Vector3(x,y,z)) # Check conflict with existing branches in dynamic grid
+  
+  exp_occupation = 1+len(attractor_grid_2.query_points_in_cone(Vector3(x,y,z),Vector3(u,v,w), radius_to_check, radians(90))) # check expected occupation in static attractor grid - smoothed by 1
+  
+  d2 = 1-(len(localattractors)/exp_occupation)
+  print('d2 numerator-denominator', len(localattractors), exp_occupation, 'contribution', w_[1].item()*d2)
+  
+  
+  # Compute d3 from localattractors 
+  mean_dir = pointset_mean_direction(Vector3(x,y,z),pts,localattractors)
+  d3 = np.dot(np.array([mean_dir[0], mean_dir[1], mean_dir[2]]), dir_to_check)
+  
+  print('d3 costheta', d3, 'contribution', w_[2].item()*d3)
+  
+  # Compute d4 from generation
+  d4 = (gen-t)/gen # age relative to pivot generation
+  print('d4 age', d4, t, 'contribution', w_[3].item()*d4)
+  
+  # Compute termination probability
+  contributions = w_*torch.tensor([d1, d2,d3,d4]).float()
+  print("contributions",contributions)
+  print(f"max positive influence = d{torch.argmax(contributions).item()+1}\nmax negative influence = d{torch.argmin(contributions).item()+1}")
+  p_emit = torch.sigmoid(torch.sum(contributions)).item()
+  print('Emission probability', p_emit)
+  
+  # Get radii and lengths for next generation using original tree information
+  new_r, new_l = info_per_gen.loc[info_per_gen.weibel_generation==min([t,info_per_gen.weibel_generation.max()])][['radius_vox','centerlinelength_vox']].values.squeeze()
+  print('New radius and length from generation' , new_l, new_r)
+  # Get next rule and emission samples
+  curr_rule = torch.distributions.Categorical(tm[o,:]).sample().long().item()
+  
+  # Modify covariance for MVN distribution in PyTorch
+  if len(cov[curr_rule,:].shape)<2:
+    var =  torch.eye(3)*cov[curr_rule,:]
+  else:
+    var = cov[curr_rule,:]
+    
+  #Apply -1 to one of the 2 angles alpha (put alpha2 larger in dirn of more space)
+  if np.sign(d3) == 1:
+    idx_to_flip=0
+  else:
+    idx_to_flip=1
+    
+  #idx_to_flip = random.choice([1,0]) 
+  multiplic = torch.ones(mu.shape[-1])
+  multiplic[idx_to_flip] = -1
+  
+  # Draw next angles
+  proposed_angles = torch.distributions.MultivariateNormal(mu[curr_rule,:]*multiplic, covariance_matrix=var).sample()
+  
+  # Create new child ids
+  child_new_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+  
+  print('Drawing next information. Curr Rule={}, Angles={}'.format(curr_rule, proposed_angles))
+  
+  # Save information to segment df for this branching event
+  segment_df = segment_df._append({'idno':idno, 'lobe': lobe_of_choice, 'space_dir_x':mean_dir[0],'space_dir_y':mean_dir[1], 'space_dir_z':mean_dir[2],'xdir': u, 'ydir': v, 
+      'zdir': w, 'centerlinelength': new_l, 'x': x, 'y': y, 'z': z,
+       'radius': new_r, 'child_id':child_new_ids, 'parent_id':parent_id, 
+       'alpha1':proposed_angles[0].item(),'alpha2':proposed_angles[1].item(),'phi':proposed_angles[2].item(), 'd1':d1, 'd2':d2, 'd3':d3,'d4':d4, 'p_emit':p_emit, "t":t, 'rule':curr_rule, 'max_negative_influence': torch.argmin(contributions).item()+1, 'max_positive_influence': torch.argmax(contributions).item()+1 }, ignore_index=True)
+  
+  # Emit new branches if p_emit > 0.5
+  if p_emit > 0.5:
+    # remove local attractors and emit branches
+    attractor_grid.disable_points(localattractors )
+    for i in range(2):
+      child_new_id = child_new_ids[i]
+      nproduce [/(proposed_angles[2].item()) &(proposed_angles[i].item())I(new_l, new_r,cmap[curr_rule])?P(0,0,0)?H(0,0,0)A(new_l,new_r,curr_rule,cmap[curr_rule],child_new_id,t+1)]#A(new_l, new_r,curr_rule,cmap[curr_rule],parent_id, proposed_angles, i+1)]
+  else:
+      print("TERMINATING")
+      # conditons fail - stop branching & colour dot based on WHY it terminated
+      termination_reason = torch.argmin(contributions).item()+1
+      term_colours ={4:(0,0,0), 3:(0,0,255), 2:(243,114,32), 1:(169,169,169)}
+      ball_colour = term_colours[termination_reason]
+      print('\n\n\nTERMINATION REASON', termination_reason)
+      produce @SetColor(ball_colour[0],ball_colour[1],ball_colour[2])@O(1)%
+      
+      
+interpretation:
+
+I(l,r,p1,p2,name, gen) -->@SetColor(225,225,153)F(l,r) # @SetColor(68, 68, 60)@L(str(name)) # uncomment if you want to add anatomical name 
+
+I(l,r) --> F(l,r)#@SetColor(0,0,0)@L(str(o))
+A(l,r,o, c,parent_id,t) --> @SetColor(c[0], c[1], c[2])@O(1.5) 
+
+Attractors :
+  pttodisplay = attractor_grid.get_enabled_points()
+  pttodisplay_off = attractor_grid.get_disabled_points()
+  
+  if len(pttodisplay) > 0:
+    produce [,(1) @g(PointSet(pttodisplay,width=4))] 
+  if len(pttodisplay_off) > 0:
+    produce [,(2) @g(PointSet(pttodisplay_off,width=4))] 
+
+
+homomorphism:
+I(a,r, c) --> @SetColor(c[0], c[1], c[2])F(a,r)
+
+endlsystem
+###### INITIALISATION ######
+
+__lpy_code_version__ = 1.1
+
+def __initialiseContext__(context):
+	import openalea.plantgl.all as pgl
+	Color_8 = pgl.Material("Color_8" , ambient = (113,0,0) , diffuse = 1.41593 , )
+	Color_8.name = "Color_8"
+	context.turtle.setMaterial(8,Color_8)
