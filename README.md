@@ -108,7 +108,7 @@ To visualise and generate synthetic trees, you should have the following structu
 
 ### Generate a cohort of synthetic trees
 <!-- <a href="url"><img src="!/synthetic_trees/ATM_example/synthetic_trees_readme.png" align="left" height="48" width="48" ></a> -->
-![trees](synthetic_trees/ATM_example/synthetic_trees_readme.png)
+![trees](img_src/synthetic_trees_readme.png)
 
 
 To generate a cohort of synthetic trees, run 
@@ -134,7 +134,7 @@ Additional parameters that can be passed include:
 Visualisation of example `tree_template_df.csv` and `lobe_template.npy`:
 
 
-![](/synthetic_trees/ATM_example/example_df.png)
+![](img_src/example_df.png)
 
 
 To process the cohort of trees into a single path dataset, run 
