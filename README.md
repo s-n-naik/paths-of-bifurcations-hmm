@@ -37,7 +37,8 @@ Additional requirements:
 
     - pandas==1.5.1
     - scipy==1.10.1
-    - torch==1.13.0
+    - torch==1.11.0
+    - torch_geometric==2.0.4
     - tqdm==4.64.1
     - pyro-api==0.1.2
     - pyro-ppl==1.8.4
