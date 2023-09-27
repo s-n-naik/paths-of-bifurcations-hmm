@@ -86,8 +86,9 @@ Additional requirements:
     - openalea-plantgl==3.14.1
     - pandas==1.5.1
     - scipy==1.10.1
-    - torch==1.13.0
+    - torch==1.11.0
     - tqdm==4.64.1
+    - numpy==1.24.4
     
     
 <!-- pillow==9.3.0 ,pytz==2022.6 -->
