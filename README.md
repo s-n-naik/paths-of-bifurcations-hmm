@@ -10,10 +10,6 @@ Implementation of the paper
 _Demonstrating the capacity of a Path-Based variational inference formulation for robust hidden Markov modelling of complex and noisy binary trees_.
 
 
-Submitted for publication at [ICLR 2024](https://openreview.net/) 
-
-
-
 
 <!-- - Python 3.9.7
 - Pytorch 1.11.0
