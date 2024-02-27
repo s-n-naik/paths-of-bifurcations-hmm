@@ -5,9 +5,9 @@
 
 <img src="img_src/branching_angle_description.png" alt="branchingangles" width="400"/>
 
-<!--Implementation of the paper
+Implementation of the paper
 
-_Demonstrating the capacity of a Path-Based variational inference formulation for robust hidden Markov modelling of complex and noisy binary trees_.-->
+_Demonstrating the capacity of a Path-Based variational inference formulation for robust hidden Markov modelling of complex and noisy binary trees_ (https://openreview.net/pdf?id=YTKShuSOhI)
 
 
 
