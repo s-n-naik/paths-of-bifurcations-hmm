@@ -1,4 +1,4 @@
-# Paths-of-Bifurcation Inference for Hidden Markov Modelling of Binary Trees
+# Paths-of-Bifurcation Inference for Hidden Markov Modelling of Airway Trees
 
 <!--![](img_src/branching_angle_description.png)-->
 
